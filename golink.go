@@ -8,6 +8,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/tls"
 	"embed"
 	"encoding/json"
 	"errors"
@@ -43,6 +44,7 @@ var (
 	dev               = flag.String("dev-listen", "", "if non-empty, listen on this addr and run in dev mode; auto-set sqlitedb if empty and don't use tsnet")
 	snapshot          = flag.String("snapshot", "", "file path of snapshot file")
 	hostname          = flag.String("hostname", defaultHostname, "service name")
+	useHTTPS          = flag.Bool("https", false, "use https if enabled in DNS settings")
 	resolveFromBackup = flag.String("resolve-from-backup", "", "resolve a link from snapshot file and exit")
 )
 
@@ -168,13 +170,25 @@ func Run() error {
 	}
 	localClient, _ = srv.LocalClient()
 
-	l80, err := srv.Listen("tcp", ":80")
-	if err != nil {
-		return err
+	var ln net.Listener
+	s := ""
+	if *useHTTPS {
+		ln, err = srv.Listen("tcp", ":443")
+		if err != nil {
+			return err
+		}
+		ln = tls.NewListener(ln, &tls.Config{
+			GetCertificate: localClient.GetCertificate,
+		})
+		s = "s"
+	} else {
+		ln, err = srv.Listen("tcp", ":80")
+		if err != nil {
+			return err
+		}
 	}
-
-	log.Printf("Serving http://%s/ ...", *hostname)
-	if err := http.Serve(l80, nil); err != nil {
+	log.Printf("Serving http%s://%s/ ...", s, *hostname)
+	if err := http.Serve(ln, nil); err != nil {
 		return err
 	}
 	return nil
